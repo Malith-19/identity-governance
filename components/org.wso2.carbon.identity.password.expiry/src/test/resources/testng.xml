@@ -10,7 +10,7 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd" >
 
 <suite name="Identity-connector-password-policy-test-suite">
-    <test name="password-policy-authenticator-all" parallel="false">
+    <test name="password-policy-authenticator-all" parallel="classes">
         <classes>
             <class name="org.wso2.carbon.identity.password.expiry.PasswordResetEnforcerHandlerTest"/>
             <class name="org.wso2.carbon.identity.password.expiry.PasswordPolicyUtilsTest"/>

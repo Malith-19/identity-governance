@@ -21,7 +21,7 @@
 
 <suite name="Carbon-Security-Test-Suite">
 
-    <test name="password-history-tests" preserve-order="true" parallel="false">
+    <test name="password-history-tests" parallel="classes">
         <classes>
             <class name="org.wso2.carbon.identity.password.history.handler.PasswordHistoryValidationHandlerTest"/>
             <class name="org.wso2.carbon.identity.password.history.Util.UtilsTest"/>

@@ -18,7 +18,7 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd" >
 
 <suite name="User-Endpoint-Test-Suite">
-    <test name="Util-Tests" preserve-order="true" parallel="false">
+    <test name="Util-Tests" parallel="classes">
         <classes>
             <class name="org.wso2.carbon.identity.recovery.endpoint.ClaimsApiServiceImplTest"/>
             <class name="org.wso2.carbon.identity.recovery.endpoint.RecoverPasswordApiServiceImplTest"/>

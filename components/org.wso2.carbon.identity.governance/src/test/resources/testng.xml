@@ -21,13 +21,13 @@
 
 <suite name="Carbon-Security-Test-Suite">
 
-    <test name="identity-governance-tests" preserve-order="true" parallel="false">
+    <test name="identity-governance-tests" parallel="classes">
         <classes>
             <class name="org.wso2.carbon.identity.governance.IdentityGovernanceServiceImplTest"/>
             <class name="org.wso2.carbon.identity.governance.listener.IdentityMgtEventListenerTest"/>
             <class name="org.wso2.carbon.identity.governance.listener.IdentityStoreEventListenerTest"/>
             <class name="org.wso2.carbon.identity.governance.store.JDBCIdentityDataStoreTest"/>
-            <class name="org.wso2.carbon.identity.governance.listener.NotificationTemplateManagerTest"></class>
+            <class name="org.wso2.carbon.identity.governance.listener.NotificationTemplateManagerTest"/>
             <class name="org.wso2.carbon.identity.governance.internal.service.impl.notification.DefaultNotificationChannelManagerTest"/>
         </classes>
     </test>

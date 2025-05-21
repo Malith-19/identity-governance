@@ -18,7 +18,7 @@
   -->
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd" >
 <suite name="org.wso2.carbon.identity.oauth.test.suite" verbose="1">
-    <test name="using-own-test-framework" preserve-order="false" parallel="false">
+    <test name="using-own-test-framework" parallel="classes">
         <parameter name="log-levels" value="debug, info" />
         <classes>
             <class name="org.wso2.carbon.identity.user.export.core.internal.service.impl.BasicUserInformationProviderTest"/>

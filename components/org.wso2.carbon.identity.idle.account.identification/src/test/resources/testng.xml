@@ -19,7 +19,7 @@
 
 <suite name="org.wso2.carbon.identity.api.idle.account.identification.core.services">
 
-    <test name="idle-account-identification-tests" preserve-order="true" parallel="false">
+    <test name="idle-account-identification-tests" parallel="false">
         <classes>
             <class name="org.wso2.carbon.identity.idle.account.identification.IdleAccountIdentificationServiceImplTest"/>
         </classes>

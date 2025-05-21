@@ -21,9 +21,10 @@
 
 <suite name="Carbon-Security-Test-Suite">
 
-    <test name="identity-tenant-resource-tests" preserve-order="true" parallel="false">
+    <test name="identity-tenant-resource-tests" parallel="false">
         <classes>
-            <class name="org.wso2.carbon.identity.tenant.resource.manager.TenantAwareAxis2ConfigurationContextObserverTest"></class>
+            <class
+                    name="org.wso2.carbon.identity.tenant.resource.manager.TenantAwareAxis2ConfigurationContextObserverTest"/>
         </classes>
     </test>
 </suite>
