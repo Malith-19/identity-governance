@@ -21,7 +21,7 @@
 
 <suite name="Carbon-Security-Test-Suite">
 
-    <test name="password-policy-tests" preserve-order="true" parallel="false">
+    <test name="password-policy-tests" parallel="classes">
         <classes>
             <class name="org.wso2.carbon.identity.password.policy.handler.PasswordPolicyValidationHandlerTest"/>
             <class name="org.wso2.carbon.identity.password.policy.util.UtilsTest"/>
