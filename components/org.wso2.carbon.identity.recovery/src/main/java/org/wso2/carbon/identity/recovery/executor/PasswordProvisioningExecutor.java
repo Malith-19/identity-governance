@@ -18,6 +18,9 @@
 
 package org.wso2.carbon.identity.recovery.executor;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
@@ -30,13 +33,14 @@ import org.wso2.carbon.identity.event.IdentityEventConstants;
 import org.wso2.carbon.identity.event.IdentityEventException;
 import org.wso2.carbon.identity.event.event.Event;
 import org.wso2.carbon.identity.flow.execution.engine.Constants;
-import org.wso2.carbon.identity.flow.execution.engine.graph.Executor;
+import org.wso2.carbon.identity.flow.execution.engine.graph.AuthenticationExecutor;
 import org.wso2.carbon.identity.flow.execution.engine.model.ExecutorResponse;
 import org.wso2.carbon.identity.flow.execution.engine.model.FlowExecutionContext;
 import org.wso2.carbon.identity.flow.execution.engine.model.FlowUser;
 import org.wso2.carbon.identity.recovery.IdentityRecoveryConstants;
 import org.wso2.carbon.identity.recovery.IdentityRecoveryException;
 import org.wso2.carbon.identity.recovery.internal.IdentityRecoveryServiceDataHolder;
+import org.wso2.carbon.identity.recovery.util.Utils;
 import org.wso2.carbon.user.api.UserStoreException;
 import org.wso2.carbon.user.api.UserStoreManager;
 import org.wso2.carbon.user.core.UserRealm;
@@ -55,6 +59,9 @@ import static org.wso2.carbon.identity.flow.execution.engine.Constants.ExecutorS
 import static org.wso2.carbon.identity.flow.execution.engine.Constants.ExecutorStatus.STATUS_ERROR;
 import static org.wso2.carbon.identity.flow.execution.engine.Constants.ExecutorStatus.STATUS_USER_INPUT_REQUIRED;
 import static org.wso2.carbon.identity.flow.execution.engine.Constants.PASSWORD_KEY;
+import static org.wso2.carbon.identity.flow.mgt.Constants.FlowTypes.INVITED_USER_REGISTRATION;
+import static org.wso2.carbon.identity.flow.mgt.Constants.FlowTypes.PASSWORD_RECOVERY;
+import static org.wso2.carbon.identity.flow.mgt.Constants.FlowTypes.REGISTRATION;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.CONFIRMATION_CODE;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.CONFIRMATION_CODE_INPUT;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.USER;
@@ -62,16 +69,21 @@ import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.USER;
 /**
  * Executor to provision the password.
  */
-public class PasswordProvisioningExecutor implements Executor {
+public class PasswordProvisioningExecutor extends AuthenticationExecutor {
 
     private static final Log LOG = LogFactory.getLog(PasswordProvisioningExecutor.class);
     private static final String WSO2_CLAIM_DIALECT = "http://wso2.org/claims/";
-    private static final String PASSWORD_RECOVERY = "PASSWORD_RECOVERY";
 
     @Override
     public String getName() {
 
         return "PasswordProvisioningExecutor";
+    }
+
+    @Override
+    public String getAMRValue() {
+
+        return "BasicAuthenticator";
     }
 
     @Override
@@ -94,7 +106,8 @@ public class PasswordProvisioningExecutor implements Executor {
         Map<String, char[]> credentials;
         String passwordValue = context.getUserInputData() != null ? context.getUserInputData().get(PASSWORD_KEY) : null;
         if (StringUtils.isNotBlank(passwordValue)) {
-            credentials = Collections.singletonMap(PASSWORD_KEY, passwordValue.toCharArray());
+            credentials = new HashMap<>();
+            credentials.put(PASSWORD_KEY, passwordValue.toCharArray());
             context.getFlowUser().setUserCredentials(credentials);
         } else {
             credentials = context.getFlowUser().getUserCredentials();
@@ -103,12 +116,15 @@ public class PasswordProvisioningExecutor implements Executor {
             }
         }
 
+
         char[] password = credentials.getOrDefault(PASSWORD_KEY, new DefaultPasswordGenerator().generatePassword());
         try {
-            if (context.getFlowType().equals(PASSWORD_RECOVERY)) {
+            if (PASSWORD_RECOVERY.getType().equalsIgnoreCase(context.getFlowType())) {
                 return handlePasswordRecoveryFlow(context, password);
-            } else if (Flow.Name.INVITED_USER_REGISTRATION.name().equalsIgnoreCase(context.getFlowType())) {
+            } else if (INVITED_USER_REGISTRATION.getType().equalsIgnoreCase(context.getFlowType())) {
                 return handleAskPasswordFlow(context, password);
+            } else if (REGISTRATION.getType().equalsIgnoreCase(context.getFlowType())) {
+                return new ExecutorResponse(STATUS_COMPLETE);
             }
             return new ExecutorResponse();
         } finally {
@@ -119,7 +135,7 @@ public class PasswordProvisioningExecutor implements Executor {
     private ExecutorResponse handleAskPasswordFlow(FlowExecutionContext context, char[] password) {
 
         String confirmationCode = (String) context.getProperty(CONFIRMATION_CODE_INPUT);
-        User user = (User) context.getProperty(USER);
+        User user = Utils.resolveUserFromContext(context);
         if (StringUtils.isBlank(confirmationCode) || user == null) {
             return errorResponse(new ExecutorResponse(), "Required properties are missing in the context.");
         }
@@ -127,6 +143,7 @@ public class PasswordProvisioningExecutor implements Executor {
         String recoveryScenario = getStringProperty(context, IdentityRecoveryConstants.RECOVERY_SCENARIO);
 
         try {
+            enterFlow();
             int tenantId = IdentityTenantUtil.getTenantId(context.getTenantDomain());
 
             handlePrePasswordUpdate(user, recoveryScenario, confirmationCode);
@@ -144,6 +161,8 @@ public class PasswordProvisioningExecutor implements Executor {
         } catch (UserStoreException | IdentityEventException | IdentityRecoveryException e) {
             LOG.error("Error while updating password for user: " + context.getFlowUser().getUsername(), e);
             return errorResponse(new ExecutorResponse(), e.getMessage());
+        } finally {
+            IdentityContext.getThreadLocalIdentityContext().exitFlow();
         }
     }
 
@@ -156,26 +175,30 @@ public class PasswordProvisioningExecutor implements Executor {
     private void handlePrePasswordUpdate(User user, String recoveryScenario, String confirmationCode)
             throws IdentityRecoveryException, IdentityEventException {
 
-        updateIdentityContext();
         publishEvent(user, confirmationCode, IdentityEventConstants.Event.
                 PRE_ADD_NEW_PASSWORD, recoveryScenario);
     }
 
-    private void updateIdentityContext() {
+    private void enterFlow() {
+
+        Flow.InitiatingPersona initiatingPersona;
+        Flow existingFlow = IdentityContext.getThreadLocalIdentityContext().getCurrentFlow();
+
+        if (existingFlow != null) {
+            initiatingPersona = existingFlow.getInitiatingPersona();
+        } else {
+            initiatingPersona = Flow.InitiatingPersona.ADMIN;
+        }
 
         Flow flow = new Flow.Builder()
                 .name(Flow.Name.INVITED_USER_REGISTRATION)
-                .initiatingPersona(Flow.InitiatingPersona.ADMIN)
+                .initiatingPersona(initiatingPersona)
                 .build();
 
-        if (IdentityContext.getThreadLocalIdentityContext().getFlow() != null) {
-            // If the flow is already set, no need to update it again.
-            return;
-        }
-        IdentityContext.getThreadLocalIdentityContext().setFlow(flow);
+        IdentityContext.getThreadLocalIdentityContext().enterFlow(flow);
     }
 
-    public void publishEvent(User user, String code, String eventName, String recoveryScenario) throws
+    private void publishEvent(User user, String code, String eventName, String recoveryScenario) throws
             IdentityEventException {
 
         HashMap<String, Object> properties = new HashMap<>();
@@ -220,6 +243,7 @@ public class PasswordProvisioningExecutor implements Executor {
         response.setRequiredData(Collections.singletonList(PASSWORD_KEY));
         return response;
     }
+
 
     /**
      * Updates user claims in the user store.

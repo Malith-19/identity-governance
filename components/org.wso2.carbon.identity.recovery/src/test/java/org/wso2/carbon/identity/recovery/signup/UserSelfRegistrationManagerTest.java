@@ -62,6 +62,7 @@ import org.wso2.carbon.identity.event.event.Event;
 import org.wso2.carbon.identity.event.services.IdentityEventService;
 import org.wso2.carbon.identity.governance.IdentityGovernanceException;
 import org.wso2.carbon.identity.governance.IdentityGovernanceService;
+import org.wso2.carbon.identity.governance.exceptions.notiification.NotificationChannelManagerException;
 import org.wso2.carbon.identity.governance.service.notification.NotificationChannelManager;
 import org.wso2.carbon.identity.governance.service.notification.NotificationChannels;
 import org.wso2.carbon.identity.governance.service.otp.OTPGenerator;
@@ -87,6 +88,7 @@ import org.wso2.carbon.identity.recovery.model.UserRecoveryData;
 import org.wso2.carbon.identity.recovery.store.JDBCRecoveryDataStore;
 import org.wso2.carbon.identity.recovery.store.UserRecoveryDataStore;
 import org.wso2.carbon.identity.recovery.util.Utils;
+import org.wso2.carbon.identity.workflow.mgt.util.WorkflowErrorConstants;
 import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
 import org.wso2.carbon.idp.mgt.IdentityProviderManager;
 import org.wso2.carbon.user.api.Claim;
@@ -137,6 +139,7 @@ import static org.wso2.carbon.identity.mgt.constants.SelfRegistrationStatusCodes
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ConnectorConfig.ACCOUNT_LOCK_ON_CREATION;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ConnectorConfig.ENABLE_SELF_SIGNUP;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ConnectorConfig.NOTIFICATION_INTERNALLY_MANAGE;
+import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ConnectorConfig.SELF_REGISTRATION_EMAIL_OTP_ENABLE;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ConnectorConfig.SELF_REGISTRATION_SEND_OTP_IN_EMAIL;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ConnectorConfig.SELF_REGISTRATION_USE_LOWERCASE_CHARACTERS_IN_OTP;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ConnectorConfig.SELF_REGISTRATION_USE_NUMBERS_IN_OTP;
@@ -150,6 +153,8 @@ import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ErrorM
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ErrorMessages.ERROR_CODE_INVALID_USER_ATTRIBUTES_FOR_REGISTRATION;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ErrorMessages.ERROR_CODE_MULTIPLE_REGISTRATION_OPTIONS;
 import static org.wso2.carbon.identity.recovery.IdentityRecoveryConstants.ErrorMessages.ERROR_CODE_UNEXPECTED_ERROR_VALIDATING_ATTRIBUTES;
+import static org.wso2.carbon.identity.workflow.mgt.util.WorkflowErrorConstants.ErrorMessages.ERROR_CODE_USER_WF_ALREADY_EXISTS;
+import static org.wso2.carbon.identity.workflow.mgt.util.WorkflowErrorConstants.ErrorMessages.ERROR_CODE_USER_WF_USER_ALREADY_EXISTS;
 
 /**
  * Test class for UserSelfRegistrationManager class.
@@ -422,6 +427,11 @@ public class UserSelfRegistrationManagerTest {
         sendOtpInEmailConfig.setName(SELF_REGISTRATION_SEND_OTP_IN_EMAIL);
         sendOtpInEmailConfig.setValue("false");
 
+        org.wso2.carbon.identity.application.common.model.Property selfRegistrationEmailOTPConfig =
+                new org.wso2.carbon.identity.application.common.model.Property();
+        selfRegistrationEmailOTPConfig.setName(SELF_REGISTRATION_EMAIL_OTP_ENABLE);
+        selfRegistrationEmailOTPConfig.setValue(Boolean.FALSE.toString());
+
         org.wso2.carbon.identity.application.common.model.Property useLowerCaseConfig =
                 new org.wso2.carbon.identity.application.common.model.Property();
         useLowerCaseConfig.setName(SELF_REGISTRATION_USE_LOWERCASE_CHARACTERS_IN_OTP);
@@ -471,6 +481,10 @@ public class UserSelfRegistrationManagerTest {
         when(identityGovernanceService
                 .getConfiguration(new String[]{SELF_REGISTRATION_SEND_OTP_IN_EMAIL}, TEST_TENANT_DOMAIN_NAME))
                 .thenReturn(new org.wso2.carbon.identity.application.common.model.Property[]{sendOtpInEmailConfig});
+        when(identityGovernanceService
+                .getConfiguration(new String[]{SELF_REGISTRATION_EMAIL_OTP_ENABLE}, TEST_TENANT_DOMAIN_NAME))
+                .thenReturn(new org.wso2.carbon.identity.application.common.model.Property[]{
+                        selfRegistrationEmailOTPConfig});
         when(identityGovernanceService
                 .getConfiguration(new String[]{SELF_REGISTRATION_USE_LOWERCASE_CHARACTERS_IN_OTP},
                         TEST_TENANT_DOMAIN_NAME))
@@ -1285,6 +1299,47 @@ public class UserSelfRegistrationManagerTest {
             verify(consentManger).addConsent(any());
             verify(identityEventService, atLeastOnce()).handleEvent(any());
         }
+    }
+
+    @Test(dataProvider = "WorkflowErrorProvider")
+    public void testRegisterUserWorkflowErrors(WorkflowErrorConstants.ErrorMessages errorMessage)
+            throws org.wso2.carbon.user.core.UserStoreException, NotificationChannelManagerException {
+
+        User user = getUser();
+        Property property = new Property(IdentityRecoveryConstants.Consent.CONSENT, consentData);
+        when(userRealm.getUserStoreManager()).thenReturn(abstractUserStoreManager);
+        when(abstractUserStoreManager.getSecondaryUserStoreManager(anyString())).thenReturn(userStoreManager);
+        when(abstractUserStoreManager.addUserWithID(anyString(), anyString(), any(), any(), isNull()))
+                .thenThrow(new org.wso2.carbon.user.core.UserStoreException(
+                        errorMessage.getMessage(), errorMessage.getCode()));
+        try (MockedStatic<Utils> mockedUtils = mockStatic(Utils.class)) {
+            mockedUtils.when(() -> Utils.getSignUpConfigs(eq(ACCOUNT_LOCK_ON_CREATION), anyString()))
+                    .thenReturn(Boolean.TRUE.toString());
+            mockedUtils.when(() -> Utils.getSignUpConfigs(eq(NOTIFICATION_INTERNALLY_MANAGE), anyString()))
+                    .thenReturn(Boolean.TRUE.toString());
+            mockedUtils.when(() -> Utils.getSignUpConfigs(eq(ENABLE_SELF_SIGNUP), anyString()))
+                    .thenReturn(Boolean.TRUE.toString());
+            mockedUtils.when(Utils::getNotificationChannelManager).thenReturn(notificationChannelManager);
+
+            when(notificationChannelManager.resolveCommunicationChannel(anyString(), anyString(), anyString(), any()))
+                    .thenReturn(NotificationChannels.EMAIL_CHANNEL.getChannelType());
+
+            userSelfRegistrationManager.registerUser(user, "test-pwd", new Claim[0], new Property[] {property});
+            fail("Expected an IdentityRecoveryServerException to be thrown.");
+        } catch (IdentityRecoveryException e) {
+            assertTrue(e.getMessage().contains(errorMessage.getMessage()));
+            assertEquals(e.getErrorCode(), errorMessage.getCode());
+        }
+        verify(abstractUserStoreManager).addUserWithID(anyString(), anyString(), any(), any(), isNull());
+    }
+
+    @DataProvider(name = "WorkflowErrorProvider")
+    public Object[][] workflowErrorProvider() {
+
+        return new Object[][] {
+                {ERROR_CODE_USER_WF_ALREADY_EXISTS},
+                {ERROR_CODE_USER_WF_USER_ALREADY_EXISTS}
+        };
     }
 
     @Test
